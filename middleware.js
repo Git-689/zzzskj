@@ -1,9 +1,7 @@
 import { NextResponse } from 'next/server';
-import { getDb, getEnv } from './lib/db';
 
 export async function middleware(request) {
   const authCookie = request.cookies.get('auth')?.value;
-  const { ADMIN_PASSWORD: adminPassword } = getEnv();
   const { pathname } = request.nextUrl;
 
   // 白名单路径直接放行
@@ -16,27 +14,10 @@ export async function middleware(request) {
     return NextResponse.next();
   }
 
-  // 管理员密码直接放行
-  if (authCookie && authCookie === adminPassword) {
-    return NextResponse.next();
-  }
-
-  // 检查临时密码是否有效
+  // 只判断 cookie 是否存在，具体有效性（管理员/临时密码、是否过期/吊销）交给 /api/data 校验
+  // 原因：middleware 里拿不到 Cloudflare Pages 的运行时 env 和 DB 绑定
   if (authCookie) {
-    try {
-      const db = getDb();
-      const now = Date.now();
-      const result = await db.execute({
-        sql: `SELECT password FROM temp_passwords 
-              WHERE password = ? AND revoked = 0 AND (expireAt IS NULL OR expireAt > ?)`,
-        args: [authCookie, now]
-      });
-      if (result.rows.length > 0) {
-        return NextResponse.next();
-      }
-    } catch (e) {
-      console.error('Middleware auth check failed:', e);
-    }
+    return NextResponse.next();
   }
 
   const loginUrl = new URL('/login', request.url);
