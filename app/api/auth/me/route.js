@@ -1,0 +1,32 @@
+import { NextResponse } from 'next/server';
+import { getDb, initTables, getEnv } from '@/lib/db';
+
+export const runtime = 'edge';
+export const dynamic = 'force-dynamic';
+
+export async function GET(request) {
+  const authCookie = request.cookies.get('auth')?.value;
+  const { ADMIN_PASSWORD: adminPassword } = getEnv();
+  const isAdmin = authCookie === adminPassword;
+
+  if (isAdmin) {
+    return NextResponse.json({ isAdmin: true });
+  }
+
+  if (authCookie) {
+    try {
+      await initTables();
+      const db = getDb();
+      const row = await db.execute({
+        sql: `SELECT expireAt FROM temp_passwords WHERE password = ? AND revoked = 0`,
+        args: [authCookie]
+      });
+      if (row.rows.length > 0) {
+        const expireAt = row.rows[0].expireAt;
+        return NextResponse.json({ isAdmin: false, expireAt: expireAt || null, isForever: expireAt === null });
+      }
+    } catch (e) {}
+  }
+
+  return NextResponse.json({ isAdmin: false });
+}
