@@ -76,12 +76,20 @@ export default function HomePage() {
   const loadData = async () => {
     try {
       const res = await fetch('/api/data');
+
+      // cookie 失效 / 临时密码过期被吊销 / 未授权，统一踢回登录页
+      if (res.status === 401) {
+        localStorage.removeItem('nav:data');
+        window.location.href = '/login';
+        return;
+      }
+
       if (!res.ok) throw new Error('Failed to fetch');
       const data = await res.json();
       setCategories(data.categories);
       setLinks(data.links);
       localStorage.setItem('nav:data', JSON.stringify(data));
-      
+
       const visiblePrimary = data.categories.filter(c => !c.parentId && c.visible !== false);
       if (visiblePrimary.length > 0 && !activePrimary) {
         setActivePrimary(visiblePrimary[0].id);
