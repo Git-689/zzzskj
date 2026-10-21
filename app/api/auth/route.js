@@ -20,12 +20,15 @@ export async function POST(request) {
   const maxFailTimes = 5;
   const lockSeconds = 600;
 
+  // 根据请求协议判断是否使用 Secure，避免 http 预览环境 cookie 不生效
+  const isHttps = request.nextUrl.protocol === 'https:';
+
   const failRow = await db.execute({
     sql: `SELECT count, lockedUntil FROM login_fails WHERE ip = ?`,
     args: [ip]
   });
   let failData = failRow.rows[0];
-  
+
   // 如果还在锁定期内，直接拒绝
   if (failData && failData.lockedUntil && failData.lockedUntil > now) {
     return NextResponse.json({ error: '密码错误次数过多，请10分钟后再试' }, { status: 429 });
@@ -43,7 +46,7 @@ export async function POST(request) {
   if (password === adminPassword) {
     await db.execute({ sql: `DELETE FROM login_fails WHERE ip = ?`, args: [ip] });
     const response = NextResponse.json({ success: true, type: 'admin' });
-    const cookieOptions = { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/' };
+    const cookieOptions = { httpOnly: true, secure: isHttps, sameSite: 'lax', path: '/' };
     if (remember) cookieOptions.maxAge = 60 * 60 * 24;
     response.cookies.set('auth', password, cookieOptions);
     return response;
@@ -59,7 +62,7 @@ export async function POST(request) {
     const temp = tempRow.rows[0];
     await db.execute({ sql: `DELETE FROM login_fails WHERE ip = ?`, args: [ip] });
     const response = NextResponse.json({ success: true, type: 'temp' });
-    const cookieOptions = { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/' };
+    const cookieOptions = { httpOnly: true, secure: isHttps, sameSite: 'lax', path: '/' };
     const maxAge = temp.durationSeconds > 0 ? Math.min(temp.durationSeconds, 86400) : 86400;
     cookieOptions.maxAge = maxAge;
     response.cookies.set('auth', password, cookieOptions);
@@ -69,7 +72,7 @@ export async function POST(request) {
   // 3. 记录失败次数
   const newCount = currentCount + 1;
   const lockedUntil = newCount >= maxFailTimes ? now + lockSeconds * 1000 : null;
-  
+
   await db.execute({
     sql: `INSERT INTO login_fails (ip, count, lockedUntil) 
           VALUES (?, ?, ?) 
